@@ -330,6 +330,155 @@ jobs:
           (cd release_assets && zip -r ../skia-wasm-prebuilt.zip .)
       - uses: actions/upload-artifact@v4
         with: { name: skia-wasm, path: skia/skia-wasm-prebuilt.zip, if-no-files-found: error }
+
+  # ============================================================================
+  # 5. SQLITE3 (LINUX, ANDROID, WINDOWS, WASM)
+  # ============================================================================
+  build-sqlite3-linux:
+    name: SQLite3 - Linux x64
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          sudo apt-get update && sudo apt-get install -y build-essential curl unzip
+          curl -sL https://www.sqlite.org/2025/sqlite-amalgamation-3490100.zip -o sqlite.zip
+          unzip sqlite.zip && mv sqlite-amalgamation-* sqlite
+          mkdir -p install_dir/include install_dir/lib
+          cp sqlite/*.h install_dir/include/
+          gcc -O3 -fPIC -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_JSON1 -DSQLITE_ENABLE_RTREE -c sqlite/sqlite3.c -o sqlite3.o
+          ar rcs install_dir/lib/libsqlite3.a sqlite3.o
+     
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: 'libsdl-org/SDL', ref: 'main', fetch-depth: 1 }
+      - run: |
+          cmake -S . -B build_win -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=install_dir_win -DSDL_SHARED=OFF -DSDL_STATIC=ON
+          cmake --build build_win --config Release
+          cmake --install build_win --config Release
+          Compress-Archive -Path install_dir_win\include, install_dir_win\lib -DestinationPath sdl3-windows-x64-prebuilt.zip
+      - uses: actions/upload-artifact@v4
+        with: { name: sdl3-windows-x64, path: sdl3-windows-x64-prebuilt.zip, if-no-files-found: error }
+
+  build-sdl3-wasm:
+    name: SDL3 - Wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: 'libsdl-org/SDL', ref: 'main', fetch-depth: 1 }
+      - uses: mymindstorm/setup-emsdk@v14
+        with: { version: latest }
+      - run: |
+          sudo apt-get update && sudo apt-get install -y cmake ninja-build zip
+          emcmake cmake -S . -B build_wasm -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=install_dir_wasm -DSDL_SHARED=OFF -DSDL_STATIC=ON
+          cmake --build build_wasm --config Release && cmake --install build_wasm
+          (cd install_dir_wasm && zip -r ../sdl3-wasm-prebuilt.zip include lib)
+      - uses: actions/upload-artifact@v4
+        with: { name: sdl3-wasm, path: sdl3-wasm-prebuilt.zip, if-no-files-found: error }
+
+  # ============================================================================
+  # 4. SKIA CHROME 158 (LINUX, ANDROID, WINDOWS, WASM)
+  # ============================================================================
+  build-skia-linux:
+    name: Skia - Linux x64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: google/skia, ref: chrome/m150, fetch-depth: 1, path: skia }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.x" }
+      - run: sudo apt-get update && sudo apt-get install -y build-essential clang libfontconfig-dev libgl1-mesa-dev libvulkan-dev git python3-venv ninja-build zip unzip
+      - working-directory: skia
+        run: |
+          set -e
+          git config --global http.version HTTP/1.1
+          for attempt in 1 2 3 4; do python tools/git-sync-deps && break || sleep 10; done
+          bin/fetch-gn
+          bin/gn gen out/Linux_x64 --args='target_os="linux" target_cpu="x64" is_debug=false is_official_build=true skia_enable_ganesh=true skia_use_gl=true skia_use_vulkan=true skia_use_freetype=true skia_use_harfbuzz=true skia_use_icu=true skia_use_system_expat=false skia_use_system_freetype2=false skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_zlib=false skia_use_system_harfbuzz=false skia_use_system_icu=false'
+          ninja -C out/Linux_x64
+          mkdir -p release_assets/lib && cp -r include release_assets/
+          [ -d modules ] && find modules -type f \( -name "*.h" -o -name "*.hpp" \) -exec cp --parents {} release_assets/ \;
+          [ -d third_party ] && find third_party -type f \( -name "*.h" -o -name "*.hpp" \) -exec cp --parents {} release_assets/ \;
+          find out/Linux_x64 -type f \( -name "*.a" -o -name "*.so" \) -exec cp {} release_assets/lib/ \;
+          tar -czvf skia-linux-x64-prebuilt.tar.gz -C release_assets .
+      - uses: actions/upload-artifact@v4
+        with: { name: skia-linux-x64, path: skia/skia-linux-x64-prebuilt.tar.gz, if-no-files-found: error }
+
+  build-skia-android:
+    name: Skia - Android ARM64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: google/skia, ref: chrome/m150, fetch-depth: 1, path: skia }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.x" }
+      - run: sudo apt-get update && sudo apt-get install -y build-essential clang lld libfontconfig-dev git python3-venv ninja-build zip unzip
+      - working-directory: skia
+        run: |
+          set -e
+          git config --global http.version HTTP/1.1
+          for attempt in 1 2 3 4; do python tools/git-sync-deps && break || sleep 10; done
+          bin/fetch-gn
+          bin/gn gen out/Android_arm64 --args='ndk="'$ANDROID_NDK_LATEST_HOME'" target_os="android" target_cpu="arm64" is_debug=false is_official_build=true skia_enable_ganesh=true skia_use_gl=true skia_use_vulkan=true skia_use_freetype=true skia_use_harfbuzz=true skia_use_icu=true skia_use_system_expat=false skia_use_system_freetype2=false skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_zlib=false skia_use_system_harfbuzz=false skia_use_system_icu=false'
+          ninja -C out/Android_arm64
+          mkdir -p release_assets/lib && cp -r include release_assets/
+          [ -d modules ] && find modules -type f \( -name "*.h" -o -name "*.hpp" \) -exec cp --parents {} release_assets/ \;
+          [ -d third_party ] && find third_party -type f \( -name "*.h" -o -name "*.hpp" \) -exec cp --parents {} release_assets/ \;
+          find out/Android_arm64 -type f \( -name "*.a" -o -name "*.so" \) -exec cp {} release_assets/lib/ \;
+          (cd release_assets && zip -r ../skia-android-arm64-prebuilt.zip .)
+      - uses: actions/upload-artifact@v4
+        with: { name: skia-android-arm64, path: skia/skia-android-arm64-prebuilt.zip, if-no-files-found: error }
+
+  build-skia-windows:
+    name: Skia - Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: google/skia, ref: chrome/m150, fetch-depth: 1, path: skia }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.x" }
+      - working-directory: skia
+        shell: bash
+        run: |
+          set -e
+          git config --global http.version HTTP/1.1
+          for attempt in 1 2 3 4; do python tools/git-sync-deps && break || sleep 10; done
+          python tools/fetch_gn.py || bin/fetch-gn
+          pip install ninja
+          bin/gn gen out/Windows_x64 --args='target_os="win" target_cpu="x64" is_debug=false is_official_build=true skia_enable_ganesh=true skia_use_gl=true skia_use_vulkan=true skia_use_freetype=true skia_use_harfbuzz=true skia_use_icu=true skia_use_system_expat=false skia_use_system_freetype2=false skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_zlib=false skia_use_system_harfbuzz=false skia_use_system_icu=false'
+          ninja -C out/Windows_x64
+          mkdir -p release_assets/lib && cp -r include release_assets/
+          [ -d modules ] && find modules -type f \( -name "*.h" -o -name "*.hpp" \) -exec cp --parents {} release_assets/ \;
+          [ -d third_party ] && find third_party -type f \( -name "*.h" -o -name "*.hpp" \) -exec cp --parents {} release_assets/ \;
+          find out/Windows_x64 -type f \( -name "*.lib" -o -name "*.dll" \) -exec cp {} release_assets/lib/ \;
+          powershell -Command "Compress-Archive -Path release_assets\* -DestinationPath skia-windows-x64-prebuilt.zip"
+      - uses: actions/upload-artifact@v4
+        with: { name: skia-windows-x64, path: skia/skia-windows-x64-prebuilt.zip, if-no-files-found: error }
+
+  build-skia-wasm:
+    name: Skia - Wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: google/skia, ref: chrome/m150, fetch-depth: 1, path: skia }
+      - uses: mymindstorm/setup-emsdk@v14
+        with: { version: latest }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.x" }
+      - run: sudo apt-get update && sudo apt-get install -y build-essential clang libfontconfig-dev git python3-venv ninja-build zip unzip
+      - working-directory: skia
+        run: |
+          set -e
+          git config --global http.version HTTP/1.1
+          for attempt in 1 2 3 4; do python tools/git-sync-deps && break || sleep 10; done
+          bin/fetch-gn
+          bin/gn gen out/Wasm --args='target_os="wasm" target_cpu="wasm" cc="emcc" cxx="em++" ar="emar" is_debug=false is_official_build=true skia_enable_ganesh=true skia_use_gl=true skia_use_webgl=true skia_use_vulkan=false skia_use_freetype=true skia_use_harfbuzz=true skia_use_icu=true skia_use_system_expat=false skia_use_system_freetype2=false skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_zlib=false skia_use_system_harfbuzz=false skia_use_system_icu=false'
+          ninja -C out/Wasm
+          mkdir -p release_assets/lib && cp -r include release_assets/
+          [ -d modules ] && find modules -type f \( -name "*.h" -o -name "*.hpp" \) -exec cp --parents {} release_assets/ \;
+          [ -d third_party ] && find third_party -type f \( -name "*.h" -o -name "*.hpp" \) -exec cp --parents {} release_assets/ \;
+          find out/Wasm -type f -name "*.a" -exec cp {} release_assets/lib/ \;
+          (cd release_assets && zip -r ../skia-wasm-prebuilt.zip .)
+      - uses: actions/upload-artifact@v4
+        with: { name: skia-wasm, path: skia/skia-wasm-prebuilt.zip, if-no-files-found: error }
     
   # ============================================================================
   # 5. SQLITE3 (LINUX, ANDROID, WINDOWS, WASM)
