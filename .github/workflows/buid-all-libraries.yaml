@@ -447,6 +447,9 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-21 -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=install_dir_android -DBUILD_SHARED_LIBS=OFF -DBUILD_CURL_EXE=OFF \
+            -DCMAKE_FIND_ROOT_PATH="$PWD/mbedtls_install" \
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
+            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH \
             -DCURL_USE_MBEDTLS=ON \
             -DMBEDTLS_INCLUDE_DIR="$PWD/mbedtls_install/include" \
             -DMBEDTLS_LIBRARY="$PWD/mbedtls_install/lib/libmbedtls.a" \
@@ -459,7 +462,6 @@ jobs:
           (cd install_dir_android && zip -r ../libcurl-android-arm64-prebuilt.zip include lib)
       - uses: actions/upload-artifact@v4
         with: { name: libcurl-android-arm64, path: libcurl-android-arm64-prebuilt.zip, if-no-files-found: error }
-
   build-libcurl-windows:
     name: libcurl - Windows x64
     runs-on: windows-latest
