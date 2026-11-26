@@ -436,32 +436,36 @@ jobs:
       - uses: actions/checkout@v4
         with: { repository: 'curl/curl', ref: 'master', fetch-depth: 1 }
       - run: |
-          sudo apt-get update && sudo apt-get install -y cmake ninja-build zip python3 pkg-config
-          git clone --depth 1 --recursive --shallow-submodules --branch v3.6.2 https://github.com/Mbed-TLS/mbedtls.git mbedtls
-          cmake -S mbedtls -B mbedtls_build -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" \
-            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-21 -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="$PWD/mbedtls_install" -DENABLE_TESTING=OFF -DENABLE_PROGRAMS=OFF
-          cmake --build mbedtls_build && cmake --install mbedtls_build
+          sudo apt-get update && sudo apt-get install -y cmake ninja-build zip perl make
+          # 1. Build OpenSSL statis untuk Android ARM64
+          git clone --depth 1 --branch openssl-3.3.2 https://github.com/openssl/openssl.git openssl
+          (
+            cd openssl
+            export ANDROID_NDK_ROOT="$ANDROID_NDK_LATEST_HOME"
+            export PATH="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+            ./Configure android-arm64 -D__ANDROID_API__=21 no-shared no-tests --prefix="$PWD/../openssl_install"
+            make -j$(nproc)
+            make install_sw
+          )
+          # 2. Build libcurl dengan OpenSSL statis
           cmake -S . -B build_android -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-21 -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=install_dir_android -DBUILD_SHARED_LIBS=OFF -DBUILD_CURL_EXE=OFF \
-            -DCMAKE_FIND_ROOT_PATH="$PWD/mbedtls_install" \
-            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
-            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH \
-            -DCURL_USE_MBEDTLS=ON \
-            -DMBEDTLS_INCLUDE_DIR="$PWD/mbedtls_install/include" \
-            -DMBEDTLS_LIBRARY="$PWD/mbedtls_install/lib/libmbedtls.a" \
-            -DMBEDX509_LIBRARY="$PWD/mbedtls_install/lib/libmbedx509.a" \
-            -DMBEDCRYPTO_LIBRARY="$PWD/mbedtls_install/lib/libmbedcrypto.a" \
+            -DCMAKE_INSTALL_PREFIX=install_dir_android \
+            -DBUILD_SHARED_LIBS=OFF -DBUILD_CURL_EXE=OFF \
+            -DCURL_USE_OPENSSL=ON \
+            -DOPENSSL_ROOT_DIR="$PWD/openssl_install" \
+            -DOPENSSL_INCLUDE_DIR="$PWD/openssl_install/include" \
+            -DOPENSSL_SSL_LIBRARY="$PWD/openssl_install/lib/libssl.a" \
+            -DOPENSSL_CRYPTO_LIBRARY="$PWD/openssl_install/lib/libcrypto.a" \
             -DCURL_ZLIB=OFF \
             -DCURL_USE_LIBPSL=OFF
           cmake --build build_android && cmake --install build_android
-          cp mbedtls_install/lib/*.a install_dir_android/lib/
+          cp openssl_install/lib/*.a install_dir_android/lib/
           (cd install_dir_android && zip -r ../libcurl-android-arm64-prebuilt.zip include lib)
       - uses: actions/upload-artifact@v4
         with: { name: libcurl-android-arm64, path: libcurl-android-arm64-prebuilt.zip, if-no-files-found: error }
+        
   build-libcurl-windows:
     name: libcurl - Windows x64
     runs-on: windows-latest
