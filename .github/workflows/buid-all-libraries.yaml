@@ -447,11 +447,10 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-21 -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=install_dir_android -DBUILD_SHARED_LIBS=OFF -DBUILD_CURL_EXE=OFF \
-            -DCURL_USE_MBEDTLS=ON -DMBEDTLS_INCLUDE_DIRS="$PWD/mbedtls_install/include" \
-            -DMBEDTLS_LIBRARY="$PWD/mbedtls_install/lib/libmbedtls.a" \
-            -DMBEDX509_LIBRARY="$PWD/mbedtls_install/lib/libmbedx509.a" \
-            -DMBEDCRYPTO_LIBRARY="$PWD/mbedtls_install/lib/libmbedcrypto.a" \
-            -DCURL_ZLIB=ON -DCURL_USE_LIBPSL=OFF
+            -DCURL_USE_MBEDTLS=ON \
+            -DCMAKE_PREFIX_PATH="$PWD/mbedtls_install" \
+            -DCURL_ZLIB=OFF \
+            -DCURL_USE_LIBPSL=OFF
           cmake --build build_android && cmake --install build_android
           cp mbedtls_install/lib/*.a install_dir_android/lib/
           (cd install_dir_android && zip -r ../libcurl-android-arm64-prebuilt.zip include lib)
@@ -491,8 +490,18 @@ jobs:
             -DCURL_ENABLE_SSL=OFF \
             -DCURL_USE_LIBPSL=OFF \
             -DCURL_ZLIB=OFF \
-            -DHAVE_ALARM=0 \
-            -DHAVE_SIGNAL=0
+            -DCURL_DISABLE_LDAP=ON \
+            -DCURL_DISABLE_FTP=ON \
+            -DCURL_DISABLE_FILE=ON \
+            -DCURL_DISABLE_TELNET=ON \
+            -DCURL_DISABLE_DICT=ON \
+            -DCURL_DISABLE_TFTP=ON \
+            -DCURL_DISABLE_POP3=ON \
+            -DCURL_DISABLE_IMAP=ON \
+            -DCURL_DISABLE_SMB=ON \
+            -DCURL_DISABLE_SMTP=ON \
+            -DCURL_DISABLE_GOPHER=ON \
+            -DCURL_DISABLE_MQTT=ON
           cmake --build build_wasm --config Release && cmake --install build_wasm
           (cd install_dir_wasm && zip -r ../libcurl-wasm-prebuilt.zip include lib)
       - uses: actions/upload-artifact@v4
@@ -547,7 +556,7 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
       - uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           path-type: inherit
           update: true
           install: make diffutils nasm yasm pkg-config
