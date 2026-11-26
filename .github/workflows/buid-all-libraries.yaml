@@ -68,7 +68,7 @@ jobs:
             -DBUILD_SHARED_LIBS=OFF -DBOX2D_SAMPLES=OFF -DBOX2D_UNIT_TESTS=OFF -DBOX2D_VALIDATION=OFF
           cmake --build build_win --config Release
           cmake --install build_win --config Release
-          Compress-Archive -Path install_dir_win\include, install_dir_win\lib -DestinationPath box2d-windows-x64-prebuilt.zip
+          7z a box2d-windows-x64-prebuilt.zip .\install_dir_win\include .\install_dir_win\lib
       - uses: actions/upload-artifact@v4
         with: { name: box2d-windows-x64, path: box2d-windows-x64-prebuilt.zip, if-no-files-found: error }
 
@@ -136,7 +136,7 @@ jobs:
           cmake -S . -B build_win -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=install_dir_win -DBUILD_SHARED_LIBS=OFF
           cmake --build build_win --config Release
           cmake --install build_win --config Release
-          Compress-Archive -Path install_dir_win\include, install_dir_win\lib -DestinationPath quickjs-windows-x64-prebuilt.zip
+          7z a quickjs-windows-x64-prebuilt.zip .\install_dir_win\include .\install_dir_win\lib
       - uses: actions/upload-artifact@v4
         with: { name: quickjs-windows-x64, path: quickjs-windows-x64-prebuilt.zip, if-no-files-found: error }
 
@@ -205,7 +205,7 @@ jobs:
           cmake -S . -B build_win -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=install_dir_win -DSDL_SHARED=OFF -DSDL_STATIC=ON
           cmake --build build_win --config Release
           cmake --install build_win --config Release
-          Compress-Archive -Path install_dir_win\include, install_dir_win\lib -DestinationPath sdl3-windows-x64-prebuilt.zip
+          7z a sdl3-windows-x64-prebuilt.zip .\install_dir_win\include .\install_dir_win\lib
       - uses: actions/upload-artifact@v4
         with: { name: sdl3-windows-x64, path: sdl3-windows-x64-prebuilt.zip, if-no-files-found: error }
 
@@ -300,7 +300,7 @@ jobs:
           [ -d modules ] && find modules -type f \( -name "*.h" -o -name "*.hpp" \) -exec cp --parents {} release_assets/ \;
           [ -d third_party ] && find third_party -type f \( -name "*.h" -o -name "*.hpp" \) -exec cp --parents {} release_assets/ \;
           find out/Windows_x64 -type f \( -name "*.lib" -o -name "*.dll" \) -exec cp {} release_assets/lib/ \;
-          powershell -Command "Compress-Archive -Path release_assets\* -DestinationPath skia-windows-x64-prebuilt.zip"
+          (cd release_assets && 7z a ../skia-windows-x64-prebuilt.zip .)
       - uses: actions/upload-artifact@v4
         with: { name: skia-windows-x64, path: skia/skia-windows-x64-prebuilt.zip, if-no-files-found: error }
 
@@ -380,7 +380,7 @@ jobs:
           Copy-Item sqlite\*.h install_dir\include\
           cl /O2 /MT /DSQLITE_THREADSAFE=1 /DSQLITE_ENABLE_FTS5 /DSQLITE_ENABLE_JSON1 /DSQLITE_ENABLE_RTREE /c sqlite\sqlite3.c /Fosqlite3.obj
           lib /OUT:install_dir\lib\sqlite3.lib sqlite3.obj
-          Compress-Archive -Path install_dir\include, install_dir\lib -DestinationPath sqlite3-windows-x64-prebuilt.zip
+          7z a sqlite3-windows-x64-prebuilt.zip .\install_dir\include .\install_dir\lib
       - uses: actions/upload-artifact@v4
         with: { name: sqlite3-windows-x64, path: sqlite3-windows-x64-prebuilt.zip, if-no-files-found: error }
 
@@ -403,34 +403,46 @@ jobs:
         with: { name: sqlite3-wasm, path: sqlite3-wasm-prebuilt.zip, if-no-files-found: error }
 
   # ============================================================================
-  # 6. LIBCURL (LINUX, ANDROID, WINDOWS, WASM)
+  # 6. LIBCURL + OPENSSL UNIFIED (LINUX, ANDROID, WINDOWS, WASM)
   # ============================================================================
   build-libcurl-linux:
-    name: libcurl - Linux x64
+    name: libcurl - Linux x64 (OpenSSL)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with: { repository: 'curl/curl', ref: 'master', fetch-depth: 1 }
       - run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config libssl-dev zlib1g-dev
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config perl make zlib1g-dev
+          # 1. Build OpenSSL statis untuk Linux x64
+          git clone --depth 1 --branch openssl-3.3.2 https://github.com/openssl/openssl.git openssl
+          (
+            cd openssl
+            ./Configure linux-x86_64 no-shared no-tests --prefix="$PWD/../openssl_install" --libdir=lib
+            make -j$(nproc)
+            make install_sw
+          )
+          # 2. Build libcurl dengan OpenSSL statis
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=install_dir \
             -DBUILD_SHARED_LIBS=OFF \
             -DBUILD_CURL_EXE=OFF \
             -DCURL_USE_OPENSSL=ON \
-            -DOPENSSL_INCLUDE_DIR=/usr/include \
-            -DOPENSSL_SSL_LIBRARY=/usr/lib/x86_64-linux-gnu/libssl.so \
-            -DOPENSSL_CRYPTO_LIBRARY=/usr/lib/x86_64-linux-gnu/libcrypto.so \
+            -DOPENSSL_ROOT_DIR="$PWD/openssl_install" \
+            -DOPENSSL_INCLUDE_DIR="$PWD/openssl_install/include" \
+            -DOPENSSL_SSL_LIBRARY="$PWD/openssl_install/lib/libssl.a" \
+            -DOPENSSL_CRYPTO_LIBRARY="$PWD/openssl_install/lib/libcrypto.a" \
             -DCURL_USE_LIBPSL=OFF
           cmake --build build --config Release && cmake --install build
+          cp -r openssl_install/include/openssl install_dir/include/
+          cp openssl_install/lib/*.a install_dir/lib/
           tar -czvf libcurl-linux-x64-prebuilt.tar.gz -C install_dir include lib
       - uses: actions/upload-artifact@v4
         with: { name: libcurl-linux-x64, path: libcurl-linux-x64-prebuilt.tar.gz, if-no-files-found: error }
 
   build-libcurl-android:
-    name: libcurl - Android ARM64
+    name: libcurl - Android ARM64 (OpenSSL)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -443,7 +455,7 @@ jobs:
             cd openssl
             export ANDROID_NDK_ROOT="$ANDROID_NDK_LATEST_HOME"
             export PATH="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
-            ./Configure android-arm64 -D__ANDROID_API__=21 no-shared no-tests --prefix="$PWD/../openssl_install"
+            ./Configure android-arm64 -D__ANDROID_API__=21 no-shared no-tests --prefix="$PWD/../openssl_install" --libdir=lib
             make -j$(nproc)
             make install_sw
           )
@@ -461,28 +473,54 @@ jobs:
             -DCURL_ZLIB=OFF \
             -DCURL_USE_LIBPSL=OFF
           cmake --build build_android && cmake --install build_android
+          cp -r openssl_install/include/openssl install_dir_android/include/
           cp openssl_install/lib/*.a install_dir_android/lib/
           (cd install_dir_android && zip -r ../libcurl-android-arm64-prebuilt.zip include lib)
       - uses: actions/upload-artifact@v4
         with: { name: libcurl-android-arm64, path: libcurl-android-arm64-prebuilt.zip, if-no-files-found: error }
-        
+
   build-libcurl-windows:
-    name: libcurl - Windows x64
+    name: libcurl - Windows x64 (OpenSSL)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with: { repository: 'curl/curl', ref: 'master', fetch-depth: 1 }
+      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          path-type: inherit
+          update: true
+          install: perl make diffutils
+      - shell: msys2 {0}
+        run: |
+          export PATH="$(dirname "$(which cl.exe)"):$(dirname "$(which nmake.exe)"):$PATH"
+          git clone --depth 1 --branch openssl-3.3.2 https://github.com/openssl/openssl.git openssl
+          (
+            cd openssl
+            perl Configure VC-WIN64A no-shared no-tests --prefix="$(cygpath -m "$PWD/../openssl_install")" --libdir=lib
+            nmake
+            nmake install_sw
+          )
       - run: |
           cmake -S . -B build_win -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=install_dir_win `
-            -DBUILD_SHARED_LIBS=OFF -DBUILD_CURL_EXE=OFF -DCURL_USE_SCHANNEL=ON -DCURL_USE_LIBPSL=OFF
+            -DBUILD_SHARED_LIBS=OFF -DBUILD_CURL_EXE=OFF `
+            -DCURL_USE_OPENSSL=ON `
+            -DOPENSSL_ROOT_DIR="$PWD\openssl_install" `
+            -DOPENSSL_INCLUDE_DIR="$PWD\openssl_install\include" `
+            -DOPENSSL_SSL_LIBRARY="$PWD\openssl_install\lib\libssl.lib" `
+            -DOPENSSL_CRYPTO_LIBRARY="$PWD\openssl_install\lib\libcrypto.lib" `
+            -DCURL_USE_LIBPSL=OFF
           cmake --build build_win --config Release
           cmake --install build_win --config Release
-          Compress-Archive -Path install_dir_win\include, install_dir_win\lib -DestinationPath libcurl-windows-x64-prebuilt.zip
+          Copy-Item -Recurse openssl_install\include\openssl install_dir_win\include\
+          Copy-Item openssl_install\lib\*.lib install_dir_win\lib\
+          7z a libcurl-windows-x64-prebuilt.zip .\install_dir_win\include .\install_dir_win\lib
       - uses: actions/upload-artifact@v4
         with: { name: libcurl-windows-x64, path: libcurl-windows-x64-prebuilt.zip, if-no-files-found: error }
 
   build-libcurl-wasm:
-    name: libcurl - Wasm
+    name: libcurl - Wasm (OpenSSL)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -490,13 +528,27 @@ jobs:
       - uses: mymindstorm/setup-emsdk@v14
         with: { version: latest }
       - run: |
-          sudo apt-get update && sudo apt-get install -y cmake ninja-build zip
+          sudo apt-get update && sudo apt-get install -y cmake ninja-build zip perl make
+          # 1. Build OpenSSL statis untuk WebAssembly (Emscripten)
+          git clone --depth 1 --branch openssl-3.3.2 https://github.com/openssl/openssl.git openssl
+          (
+            cd openssl
+            emconfigure ./Configure linux-generic32 no-asm no-shared no-threads no-dso no-engine no-tests --prefix="$PWD/../openssl_install" --libdir=lib -DOPENSSL_NO_SECURE_MEMORY
+            sed -i 's|^CROSS_COMPILE=.*|CROSS_COMPILE=|g' Makefile
+            emmake make -j$(nproc) build_generated libssl.a libcrypto.a
+            emmake make install_sw
+          )
+          # 2. Build libcurl dengan OpenSSL statis
           emcmake cmake -S . -B build_wasm -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=install_dir_wasm \
             -DBUILD_SHARED_LIBS=OFF \
             -DBUILD_CURL_EXE=OFF \
-            -DCURL_ENABLE_SSL=OFF \
+            -DCURL_USE_OPENSSL=ON \
+            -DOPENSSL_ROOT_DIR="$PWD/openssl_install" \
+            -DOPENSSL_INCLUDE_DIR="$PWD/openssl_install/include" \
+            -DOPENSSL_SSL_LIBRARY="$PWD/openssl_install/lib/libssl.a" \
+            -DOPENSSL_CRYPTO_LIBRARY="$PWD/openssl_install/lib/libcrypto.a" \
             -DCURL_USE_LIBPSL=OFF \
             -DCURL_ZLIB=OFF \
             -DCURL_DISABLE_LDAP=ON \
@@ -512,6 +564,8 @@ jobs:
             -DCURL_DISABLE_GOPHER=ON \
             -DCURL_DISABLE_MQTT=ON
           cmake --build build_wasm --config Release && cmake --install build_wasm
+          cp -r openssl_install/include/openssl install_dir_wasm/include/
+          cp openssl_install/lib/*.a install_dir_wasm/lib/
           (cd install_dir_wasm && zip -r ../libcurl-wasm-prebuilt.zip include lib)
       - uses: actions/upload-artifact@v4
         with: { name: libcurl-wasm, path: libcurl-wasm-prebuilt.zip, if-no-files-found: error }
@@ -581,7 +635,7 @@ jobs:
             mv "$f" "install_dir/lib/${base#lib}.lib"
           done
           ls -lh install_dir/lib
-      - run: Compress-Archive -Path install_dir\include, install_dir\lib -DestinationPath ffmpeg-windows-x64-prebuilt.zip
+      - run: 7z a ffmpeg-windows-x64-prebuilt.zip .\install_dir\include .\install_dir\lib
       - uses: actions/upload-artifact@v4
         with: { name: ffmpeg-windows-x64, path: ffmpeg-windows-x64-prebuilt.zip, if-no-files-found: error }
 
