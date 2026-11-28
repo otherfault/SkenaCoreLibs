@@ -403,175 +403,7 @@ jobs:
         with: { name: sqlite3-wasm, path: sqlite3-wasm-prebuilt.zip, if-no-files-found: error }
 
   # ============================================================================
-  # 6. LIBCURL + OPENSSL UNIFIED (LINUX, ANDROID, WINDOWS, WASM)
-  # ============================================================================
-  build-libcurl-linux:
-    name: libcurl - Linux x64 (OpenSSL)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { repository: 'curl/curl', ref: 'master', fetch-depth: 1 }
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config perl make zlib1g-dev
-          # 1. Build OpenSSL statis untuk Linux x64
-          git clone --depth 1 --branch openssl-3.3.2 https://github.com/openssl/openssl.git openssl
-          (
-            cd openssl
-            ./Configure linux-x86_64 no-shared no-tests --prefix="$PWD/../openssl_install" --libdir=lib
-            make -j$(nproc)
-            make install_sw
-          )
-          # 2. Build libcurl dengan OpenSSL statis
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=install_dir \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DBUILD_CURL_EXE=OFF \
-            -DCURL_USE_OPENSSL=ON \
-            -DOPENSSL_ROOT_DIR="$PWD/openssl_install" \
-            -DOPENSSL_INCLUDE_DIR="$PWD/openssl_install/include" \
-            -DOPENSSL_SSL_LIBRARY="$PWD/openssl_install/lib/libssl.a" \
-            -DOPENSSL_CRYPTO_LIBRARY="$PWD/openssl_install/lib/libcrypto.a" \
-            -DCURL_USE_LIBPSL=OFF
-          cmake --build build --config Release && cmake --install build
-          cp -r openssl_install/include/openssl install_dir/include/
-          cp openssl_install/lib/*.a install_dir/lib/
-          tar -czvf libcurl-linux-x64-prebuilt.tar.gz -C install_dir include lib
-      - uses: actions/upload-artifact@v4
-        with: { name: libcurl-linux-x64, path: libcurl-linux-x64-prebuilt.tar.gz, if-no-files-found: error }
-
-  build-libcurl-android:
-    name: libcurl - Android ARM64 (OpenSSL)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { repository: 'curl/curl', ref: 'master', fetch-depth: 1 }
-      - run: |
-          sudo apt-get update && sudo apt-get install -y cmake ninja-build zip perl make
-          # 1. Build OpenSSL statis untuk Android ARM64
-          git clone --depth 1 --branch openssl-3.3.2 https://github.com/openssl/openssl.git openssl
-          (
-            cd openssl
-            export ANDROID_NDK_ROOT="$ANDROID_NDK_LATEST_HOME"
-            export PATH="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
-            ./Configure android-arm64 -D__ANDROID_API__=21 no-shared no-tests --prefix="$PWD/../openssl_install" --libdir=lib
-            make -j$(nproc)
-            make install_sw
-          )
-          # 2. Build libcurl dengan OpenSSL statis
-          cmake -S . -B build_android -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" \
-            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-21 -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=install_dir_android \
-            -DBUILD_SHARED_LIBS=OFF -DBUILD_CURL_EXE=OFF \
-            -DCURL_USE_OPENSSL=ON \
-            -DOPENSSL_ROOT_DIR="$PWD/openssl_install" \
-            -DOPENSSL_INCLUDE_DIR="$PWD/openssl_install/include" \
-            -DOPENSSL_SSL_LIBRARY="$PWD/openssl_install/lib/libssl.a" \
-            -DOPENSSL_CRYPTO_LIBRARY="$PWD/openssl_install/lib/libcrypto.a" \
-            -DCURL_ZLIB=OFF \
-            -DCURL_USE_LIBPSL=OFF
-          cmake --build build_android && cmake --install build_android
-          cp -r openssl_install/include/openssl install_dir_android/include/
-          cp openssl_install/lib/*.a install_dir_android/lib/
-          (cd install_dir_android && zip -r ../libcurl-android-arm64-prebuilt.zip include lib)
-      - uses: actions/upload-artifact@v4
-        with: { name: libcurl-android-arm64, path: libcurl-android-arm64-prebuilt.zip, if-no-files-found: error }
-
-  build-libcurl-windows:
-    name: libcurl - Windows x64 (OpenSSL)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { repository: 'curl/curl', ref: 'master', fetch-depth: 1 }
-      - uses: ilammy/msvc-dev-cmd@v1
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: UCRT64
-          path-type: inherit
-          update: true
-          install: perl make diffutils
-      - shell: msys2 {0}
-        run: |
-          export PATH="$(dirname "$(which cl.exe)"):$(dirname "$(which nmake.exe)"):$PATH"
-          git clone --depth 1 --branch openssl-3.3.2 https://github.com/openssl/openssl.git openssl
-          (
-            cd openssl
-            perl Configure VC-WIN64A no-shared no-tests --prefix="$(cygpath -m "$PWD/../openssl_install")" --libdir=lib
-            nmake
-            nmake install_sw
-          )
-      - run: |
-          cmake -S . -B build_win -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=install_dir_win `
-            -DBUILD_SHARED_LIBS=OFF -DBUILD_CURL_EXE=OFF `
-            -DCURL_USE_OPENSSL=ON `
-            -DOPENSSL_ROOT_DIR="$PWD\openssl_install" `
-            -DOPENSSL_INCLUDE_DIR="$PWD\openssl_install\include" `
-            -DOPENSSL_SSL_LIBRARY="$PWD\openssl_install\lib\libssl.lib" `
-            -DOPENSSL_CRYPTO_LIBRARY="$PWD\openssl_install\lib\libcrypto.lib" `
-            -DCURL_USE_LIBPSL=OFF
-          cmake --build build_win --config Release
-          cmake --install build_win --config Release
-          Copy-Item -Recurse openssl_install\include\openssl install_dir_win\include\
-          Copy-Item openssl_install\lib\*.lib install_dir_win\lib\
-          7z a libcurl-windows-x64-prebuilt.zip .\install_dir_win\include .\install_dir_win\lib
-      - uses: actions/upload-artifact@v4
-        with: { name: libcurl-windows-x64, path: libcurl-windows-x64-prebuilt.zip, if-no-files-found: error }
-
-  build-libcurl-wasm:
-    name: libcurl - Wasm (OpenSSL)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { repository: 'curl/curl', ref: 'master', fetch-depth: 1 }
-      - uses: mymindstorm/setup-emsdk@v14
-        with: { version: latest }
-      - run: |
-          sudo apt-get update && sudo apt-get install -y cmake ninja-build zip perl make
-          # 1. Build OpenSSL statis untuk WebAssembly (Emscripten)
-          git clone --depth 1 --branch openssl-3.3.2 https://github.com/openssl/openssl.git openssl
-          (
-            cd openssl
-            emconfigure ./Configure linux-generic32 no-asm no-shared no-threads no-dso no-engine no-tests --prefix="$PWD/../openssl_install" --libdir=lib -DOPENSSL_NO_SECURE_MEMORY
-            sed -i 's|^CROSS_COMPILE=.*|CROSS_COMPILE=|g' Makefile
-            emmake make -j$(nproc) build_generated libssl.a libcrypto.a
-            emmake make install_sw
-          )
-          # 2. Build libcurl dengan OpenSSL statis
-          emcmake cmake -S . -B build_wasm -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=install_dir_wasm \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DBUILD_CURL_EXE=OFF \
-            -DCURL_USE_OPENSSL=ON \
-            -DOPENSSL_ROOT_DIR="$PWD/openssl_install" \
-            -DOPENSSL_INCLUDE_DIR="$PWD/openssl_install/include" \
-            -DOPENSSL_SSL_LIBRARY="$PWD/openssl_install/lib/libssl.a" \
-            -DOPENSSL_CRYPTO_LIBRARY="$PWD/openssl_install/lib/libcrypto.a" \
-            -DCURL_USE_LIBPSL=OFF \
-            -DCURL_ZLIB=OFF \
-            -DCURL_DISABLE_LDAP=ON \
-            -DCURL_DISABLE_FTP=ON \
-            -DCURL_DISABLE_FILE=ON \
-            -DCURL_DISABLE_TELNET=ON \
-            -DCURL_DISABLE_DICT=ON \
-            -DCURL_DISABLE_TFTP=ON \
-            -DCURL_DISABLE_POP3=ON \
-            -DCURL_DISABLE_IMAP=ON \
-            -DCURL_DISABLE_SMB=ON \
-            -DCURL_DISABLE_SMTP=ON \
-            -DCURL_DISABLE_GOPHER=ON \
-            -DCURL_DISABLE_MQTT=ON
-          cmake --build build_wasm --config Release && cmake --install build_wasm
-          cp -r openssl_install/include/openssl install_dir_wasm/include/
-          cp openssl_install/lib/*.a install_dir_wasm/lib/
-          (cd install_dir_wasm && zip -r ../libcurl-wasm-prebuilt.zip include lib)
-      - uses: actions/upload-artifact@v4
-        with: { name: libcurl-wasm, path: libcurl-wasm-prebuilt.zip, if-no-files-found: error }
-
-  # ============================================================================
-  # 7. FFMPEG (LINUX, ANDROID, WINDOWS, WASM)
+  # 6. FFMPEG (LINUX, ANDROID, WINDOWS, WASM)
   # ============================================================================
   build-ffmpeg-linux:
     name: FFmpeg - Linux x64
@@ -661,7 +493,7 @@ jobs:
         with: { name: ffmpeg-wasm, path: ffmpeg-wasm-prebuilt.zip, if-no-files-found: error }
 
   # ============================================================================
-  # 8. PUBLISH UNIFIED SDK BUNDLES (LINUX, ANDROID, WINDOWS, WASM)
+  # 7. PUBLISH UNIFIED SDK BUNDLES (LINUX, ANDROID, WINDOWS, WASM)
   # ============================================================================
   publish-release:
     name: Publish Unified SDK Bundles
@@ -687,10 +519,6 @@ jobs:
       - build-sqlite3-android
       - build-sqlite3-windows
       - build-sqlite3-wasm
-      - build-libcurl-linux
-      - build-libcurl-android
-      - build-libcurl-windows
-      - build-libcurl-wasm
       - build-ffmpeg-linux
       - build-ffmpeg-android
       - build-ffmpeg-windows
@@ -770,7 +598,7 @@ jobs:
           tag: "latest"
           name: "Latest Prebuilt SDK Bundles"
           body: |
-            Automated continuous build of unified prebuilt SDK bundles (Box2D, QuickJS-NG, SDL3, Skia Chrome 158, SQLite3, libcurl, FFmpeg).
+            Automated continuous build of unified prebuilt SDK bundles (Box2D, QuickJS-NG, SDL3, Skia Chrome 158, SQLite3, FFmpeg).
 
             Each archive contains a unified directory layout (`include/`, `lib/`, `modules/`, `third_party/`):
             - `skena-sdk-linux-x64.tar.gz`
